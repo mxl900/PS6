@@ -20,7 +20,7 @@ bool BoxInspector::model_poses_wrt_box(osrf_gear::Shipment &shipment_status) {
         ROS_WARN("model_poses_wrt_box(): image has zero models");
         return false;
     }
-    ROS_INFO("box cam sees %d models", num_models);
+    ROS_INFO("model_poses_wrt_box box cam sees %d models", num_models);
 
     //look for the box:
     string box_name("shipping_box"); //does a model match this name?
@@ -106,7 +106,7 @@ void BoxInspector::compute_shipment_poses_wrt_world(osrf_gear::Shipment shipment
         if (num_products == 0) {
             ROS_WARN("Zero products");
         }
-        ROS_INFO("box cam sees %d products", num_products);
+        ROS_INFO("compute_shipment_poses_wrt_world cam sees %d products", num_products);
 
         osrf_gear::Product product;
         osrf_gear::Model model;
@@ -122,7 +122,7 @@ void BoxInspector::compute_shipment_poses_wrt_world(osrf_gear::Shipment shipment
             model.type = product.type;
             model.pose = product.pose;
             desired_models_wrt_world.push_back(model);
-            ROS_INFO("Done!");
+
         } 
 
 

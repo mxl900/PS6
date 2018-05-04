@@ -65,6 +65,8 @@ void BoxInspector::update_inspection(vector<osrf_gear::Model> desired_models_wrt
   	int num_box =  box_inspector_image_.models.size();
   	int num_order = desired_models_wrt_world.size();
 
+    ROS_WARN("num_box: %i", num_box);
+    ROS_WARN("num_order: %i", num_order);
 
   	string box_name("shipping_box");
   	ROS_INFO("update_inspection: box camera saw %d objects",num_box);
@@ -75,14 +77,18 @@ void BoxInspector::update_inspection(vector<osrf_gear::Model> desired_models_wrt
   	missing_models_wrt_world.clear();
 
 /*
+original plan:
 1. for every object on the order, are they in the box? 
     write down all the no
-
 2. for every object in the box, are they on the order? 
     write down all the no
-
 3. for all the yes in 2, are they in the right position? 
     all yes are good, all no are wrong location
+
+fixed code:
+1. picked out all the satisfied product 
+2. mark true on the ones that are not orphan, misplaced or missing
+3. lopping through all in order & box, and pick out all the orphan, misplaced and missing objects without marks
 
 */
 
@@ -93,32 +99,34 @@ void BoxInspector::update_inspection(vector<osrf_gear::Model> desired_models_wrt
   	get_box_pose_wrt_world(box_pose_wrt_world);
   	compute_shipment_poses_wrt_world(shipment_status, box_pose_wrt_world, real_models_wrt_world);
 
-	osrf_gear::Model box;
-	osrf_gear::Model order;
+	  osrf_gear::Model box;
+	  osrf_gear::Model order;
 
-  	// for missing & orphan
-  	bool boxes[num_box] = {false};
-  	bool orders[num_order]  = {false};
+  	// for missing & orphan & misplace
+  	bool boxes[num_box]; 
+  	bool orders[num_order]; 
+    bool boxsatisfied[num_box]; 
+    bool ordersatisfied[num_box]; 
+  	for (bool i : boxes) i = false;
+	  for (bool i : orders) i = false;
+    for (bool i : boxsatisfied) i = false;
+    for (bool i : ordersatisfied) i = false;
 
   	for (int i = 0; i < num_box - 1; i++) {
-
 	    box = real_models_wrt_world[i];
 	    string box_name(box.type);
 
-	    for (int j = 0; j < num_order - 1; j++){ 
-
+	    for (int j = 0; j < num_order; j++){ 
 	      	order = desired_models_wrt_world[j];
 	      	string order_name(order.type);
 
 	      	if (box_name.compare(order_name) == 0) {
 
 	      		// for 1. missing & 2. orphan, actul push back happen at the end of this method
-
 	      		boxes[i] = true;
 	      		orders[j] = true;
 
-				// 3. models with wrong position and orientation (misplaced)
-
+            // for 3. misplaced, actul push back happen at the end of this method
 		      	float dx = abs(box.pose.position.x - order.pose.position.x);
 		      	float dy = abs(box.pose.position.y - order.pose.position.y);
 		      	float dz = abs(box.pose.position.z - order.pose.position.z);
@@ -126,62 +134,62 @@ void BoxInspector::update_inspection(vector<osrf_gear::Model> desired_models_wrt
 		      	float o = abs(xformUtils_.convertPlanarQuat2Phi(box.pose.orientation) - 
 		      		xformUtils_.convertPlanarQuat2Phi(order.pose.orientation));
 		      	
-			    if (dx > 0.03 || dy > 0.03 || dz > 0.03 || o > 0.1 ) {
-
-		        	misplaced_models_actual_coords_wrt_world.push_back(box);
-		        	misplaced_models_desired_coords_wrt_world.push_back(order);
-
-		    	}
-
-				// 4. all good (satisfied)
-
-		      	else {
+            // 4. all good (satisfied)
+			      if (dx < 0.03 && dy < 0.03 && dz < 0.03 && o < 0.1 ) {
 		        
+              boxsatisfied[i] = true;
+              ordersatisfied[j] = true;
 		        	satisfied_models_wrt_world.push_back(box); 
 
 		      	}
-		  	}
+		  	  }
 	  	}
-	}
+	  }
 
-	// 1. missing models (missing); in order & not in box
 
-	for (int j = 0; j < num_order - 1; j++){ 
+  	for (int j = 0; j < num_order; j++){ 
+  		order = desired_models_wrt_world[j];
 
-		order = desired_models_wrt_world[j];
-		if (orders[j] == false) {
+      // 1. missing models (missing); in order & not in box
+  		if (orders[j] == false) {
+  			missing_models_wrt_world.push_back(order);
+  		}
 
-			missing_models_wrt_world.push_back(order);
-		}
-	}
+      // 3. models in order with wrong position and orientation (misplaced)
+      else if (ordersatisfied[j] == false) {   
+        misplaced_models_desired_coords_wrt_world.push_back(order);
+      }
+  	}
 
-	// 2. models do not belong (orphan); in box & not in order
 
-	for (int i = 0; i < num_box - 1; i++) {
+  	for (int i = 0; i < num_box - 1; i++) { // exclude box
+  		box = real_models_wrt_world[i];
 
-		box = real_models_wrt_world[i];
-		if (boxes[i] == false) {
+      // 2. models do not belong (orphan); in box & not in order
+  		if (boxes[i] == false) {
+  			orphan_models_wrt_world.push_back(box);
+  		}
 
-			orphan_models_wrt_world.push_back(box);
-		}
-	}
+      // 3. models in box with wrong position and orientation (misplaced)
+      else if (boxsatisfied[i] == false) {
+        misplaced_models_actual_coords_wrt_world.push_back(box);
+      }
+  	}
 
-	ROS_WARN("Orphan!");
-	for (std::vector<osrf_gear::Model>::const_iterator i = orphan_models_wrt_world.begin(); i != orphan_models_wrt_world.end(); ++i)
-    	std::cout << *i << ' ';
-
+    /*
+  	ROS_WARN("Orphan!");
+  	for (std::vector<osrf_gear::Model>::const_iterator i = orphan_models_wrt_world.begin(); i != orphan_models_wrt_world.end(); ++i)
+      	std::cout << *i << ' ';
     ROS_WARN("Missing!");
     for (std::vector<osrf_gear::Model>::const_iterator i = missing_models_wrt_world.begin(); i != missing_models_wrt_world.end(); ++i)
-    	std::cout << *i << ' ';
-
+      	std::cout << *i << ' ';
     ROS_WARN("Misplaced!");
     for (std::vector<osrf_gear::Model>::const_iterator i = misplaced_models_actual_coords_wrt_world.begin(); i != misplaced_models_actual_coords_wrt_world.end(); ++i)
-    	std::cout << *i << ' ';
-
-    ROS_WARN("Satisfied!");
+      	std::cout << *i << ' ';
+    ROS_WARN("Satisfied!!!");
     for (std::vector<osrf_gear::Model>::const_iterator i = satisfied_models_wrt_world.begin(); i != satisfied_models_wrt_world.end(); ++i)
-    	std::cout << *i << ' ';
-
+      	std::cout << *i << ' ';
+    */
 }
 
 /**
